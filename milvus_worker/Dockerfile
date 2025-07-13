@@ -6,6 +6,7 @@ WORKDIR /
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies

@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     unzip \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # Install cypher-shell from Neo4j official distribution
