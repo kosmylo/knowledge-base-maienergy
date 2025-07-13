@@ -7,7 +7,8 @@ WORKDIR /
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /logs
 
 # Copy requirements file (ensure this file exists with the listed packages)
 COPY requirements.txt requirements.txt

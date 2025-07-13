@@ -8,7 +8,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     unzip \
     netcat-openbsd \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /logs
 
 # Install cypher-shell from Neo4j official distribution
 RUN curl -O https://dist.neo4j.org/cypher-shell/cypher-shell_5.19.0_all.deb && \
