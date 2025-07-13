@@ -59,6 +59,7 @@ services:
   opensearch_ingestion_worker:
     build: ./opensearch_worker
     container_name: opensearch_ingestion_worker
+    entrypoint: ["tail", "-f", "/dev/null"]
     environment:
       - OPENSEARCH_HOST=${OPENSEARCH_HOST}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL}
@@ -70,6 +71,7 @@ services:
       - ./data:/data
       - ./opensearch_worker/scripts:/scripts
       - ./.env:/.env
+      - ./logs:/logs
     networks:
       - knowledge-net
 
@@ -115,6 +117,7 @@ services:
   milvus_embeddings_worker:
     build: ./milvus_worker
     container_name: milvus_embeddings_worker
+    entrypoint: ["tail", "-f", "/dev/null"]
     environment:
       MILVUS_HOST: ${MILVUS_HOST}
       MILVUS_PORT: ${MILVUS_PORT}
@@ -124,6 +127,7 @@ services:
       - ./data:/data
       - ./milvus_worker/scripts:/scripts
       - ./.env:/.env
+      - ./logs:/logs
     depends_on:
       - milvus-standalone
     networks:
@@ -154,6 +158,7 @@ services:
   neo4j_embeddings_worker:
     build: ./neo4j_worker
     container_name: neo4j_embeddings_worker
+    entrypoint: ["tail", "-f", "/dev/null"]
     environment:
       NEO4J_URL: ${NEO4J_URL}
       NEO4J_USER: ${NEO4J_USER}
@@ -163,6 +168,7 @@ services:
       - ./data:/data
       - ./neo4j_worker/scripts:/scripts
       - ./.env:/.env
+      - ./logs:/logs
     depends_on:
       - neo4j
     networks:
