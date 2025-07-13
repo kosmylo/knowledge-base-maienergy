@@ -9,9 +9,20 @@ from pymilvus import (
 )
 from tqdm import tqdm
 from dotenv import load_dotenv
+import logging
 
 # Load environment variables from .env
 load_dotenv()
+
+# Logging configuration
+logging.basicConfig(
+    filename="logs/milvus_worker.log",
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+logging.info("Milvus insertion script for IRF images started.")
 
 # Configuration
 MILVUS_HOST = os.getenv("MILVUS_HOST")
@@ -22,103 +33,132 @@ DATA_DIR = "data/irf"
 COLLECTION_NAME = "irf_images"
 
 # Connect to Milvus
-connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
+try:
+    connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
+    logging.info(f"Connected to Milvus at {MILVUS_HOST}:{MILVUS_PORT}.")
+except Exception as conn_err:
+    logging.error(f"Failed to connect to Milvus: {conn_err}")
+    raise
 
 # Define schema if the collection does not exist
-if not utility.has_collection(COLLECTION_NAME):
-    fields = [
-        FieldSchema("id", DataType.VARCHAR, is_primary=True, max_length=500),
-        FieldSchema("embedding", DataType.FLOAT_VECTOR, dim=EMBED_DIMENSION),
-        FieldSchema("filename", DataType.VARCHAR, max_length=500),
-        FieldSchema("url", DataType.VARCHAR, max_length=1000),
-        FieldSchema("dataset", DataType.VARCHAR, max_length=100),
-        FieldSchema("resolution", DataType.VARCHAR, max_length=50),
-    ]
+try:
+    if not utility.has_collection(COLLECTION_NAME):
+        fields = [
+            FieldSchema("id", DataType.VARCHAR, is_primary=True, max_length=500),
+            FieldSchema("embedding", DataType.FLOAT_VECTOR, dim=EMBED_DIMENSION),
+            FieldSchema("filename", DataType.VARCHAR, max_length=500),
+            FieldSchema("url", DataType.VARCHAR, max_length=1000),
+            FieldSchema("dataset", DataType.VARCHAR, max_length=100),
+            FieldSchema("resolution", DataType.VARCHAR, max_length=50),
+        ]
 
-    schema = CollectionSchema(fields, description="IRF Dataset imagery")
-    collection = Collection(name=COLLECTION_NAME, schema=schema)
+        schema = CollectionSchema(fields, description="IRF Dataset imagery")
+        collection = Collection(name=COLLECTION_NAME, schema=schema)
 
-    # Create HNSW index
-    index_params = {
-        "metric_type": "COSINE",
-        "index_type": "HNSW",
-        "params": {"M": 16, "efConstruction": 64}
-    }
-    collection.create_index(field_name="embedding", index_params=index_params)
-else:
-    collection = Collection(COLLECTION_NAME)
+        # Create HNSW index
+        index_params = {
+            "metric_type": "COSINE",
+            "index_type": "HNSW",
+            "params": {"M": 16, "efConstruction": 64}
+        }
+        collection.create_index(field_name="embedding", index_params=index_params)
+        logging.info(f"Collection '{COLLECTION_NAME}' created with HNSW index.")
+    else:
+        collection = Collection(COLLECTION_NAME)
+        logging.info(f"Collection '{COLLECTION_NAME}' already exists.")
+except Exception as coll_err:
+    logging.error(f"Error checking/creating collection '{COLLECTION_NAME}': {coll_err}")
+    raise
 
 # Load CLIP model and processor
 device = "cuda" if torch.cuda.is_available() else "cpu"
-model = CLIPModel.from_pretrained(CLIP_MODEL_NAME).to(device)
-processor = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
+try:
+    model = CLIPModel.from_pretrained(CLIP_MODEL_NAME).to(device)
+    processor = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
+    logging.info(f"CLIP model '{CLIP_MODEL_NAME}' loaded successfully on {device}.")
+except Exception as model_err:
+    logging.error(f"Failed to load CLIP model '{CLIP_MODEL_NAME}': {model_err}")
+    raise
 
 # Multimodal embedding (image + descriptive text)
 def generate_multimodal_embedding(image_path, descriptive_text):
     image = Image.open(image_path).convert("RGB")
-
     # Tokenize text with truncation
     inputs = processor(text=[descriptive_text], images=image, return_tensors="pt",
                        padding=True, truncation=True, max_length=77).to(device)
-
     with torch.no_grad():
         image_emb = model.get_image_features(pixel_values=inputs["pixel_values"])
         text_emb = model.get_text_features(input_ids=inputs["input_ids"],
                                            attention_mask=inputs["attention_mask"])
-
     # Combine embeddings (multimodal embedding)
     embedding = (image_emb + text_emb) / 2.0
     embedding = embedding.cpu().numpy()[0]
     embedding /= np.linalg.norm(embedding)
-
     return embedding.tolist()
 
 # Prepare data entries
 entries = []
 
-# Iterate over files
-for file in tqdm(os.listdir(DATA_DIR), desc="IRF Images"):
-    if file.lower().endswith((".jpg", ".jpeg", ".png")):
-        base_name = os.path.splitext(file)[0]
-        image_path = os.path.join(DATA_DIR, file)
-        json_path = os.path.join(DATA_DIR, f"{base_name}.json")
+try:
+    # Iterate over files
+    for file in tqdm(os.listdir(DATA_DIR), desc="IRF Images"):
+        if file.lower().endswith((".jpg", ".jpeg", ".png")):
+            base_name = os.path.splitext(file)[0]
+            image_path = os.path.join(DATA_DIR, file)
+            json_path = os.path.join(DATA_DIR, f"{base_name}.json")
 
-        if not os.path.exists(json_path):
-            print(f"Metadata not found for {image_path}, skipping.")
-            continue
+            if not os.path.exists(json_path):
+                logging.warning(f"Metadata not found for {image_path}, skipping.")
+                continue
+            
+            try:
+                with open(json_path, 'r') as f:
+                    metadata = json.load(f)
 
-        with open(json_path, 'r') as f:
-            metadata = json.load(f)
+                # Generate a descriptive text based on metadata (since no caption provided)
+                descriptive_text = (f"Facade image from IRF dataset. "
+                                    f"Resolution: {metadata['additional_info']['resolution']}. "
+                                    f"Source: {metadata['source']['provider']}.")
 
-        # Generate a descriptive text based on metadata (since no caption provided)
-        descriptive_text = (f"Facade image from IRF dataset. "
-                            f"Resolution: {metadata['additional_info']['resolution']}. "
-                            f"Source: {metadata['source']['provider']}.")
+                embedding = generate_multimodal_embedding(image_path, descriptive_text)
 
-        embedding = generate_multimodal_embedding(image_path, descriptive_text)
+                entry_id = base_name
 
-        entry_id = base_name
+                entry = [
+                    entry_id,
+                    embedding,
+                    metadata.get("filename", ""),
+                    metadata.get("source", {}).get("repository", ""),
+                    "irf",
+                    metadata.get("additional_info", {}).get("resolution", ""),
+                ]
 
-        entry = [
-            entry_id,
-            embedding,
-            metadata.get("filename", ""),
-            metadata.get("source", {}).get("repository", ""),
-            "irf",
-            metadata.get("additional_info", {}).get("resolution", ""),
-        ]
+                entries.append(entry)
 
-        entries.append(entry)
+            except Exception as img_err:
+                logging.error(f"Error processing image '{image_path}': {img_err}")
+
+except Exception as dir_err:
+    logging.error(f"Error traversing data directory '{DATA_DIR}': {dir_err}")
+    raise
 
 # Insert data into Milvus in batches
 BATCH_SIZE = 100
-for i in tqdm(range(0, len(entries), BATCH_SIZE), desc="Inserting batches"):
-    batch = entries[i:i+BATCH_SIZE]
-    collection.insert(list(zip(*batch)))
-
-collection.flush()
-
-print(f"Inserted {len(entries)} IRF images into Milvus.")
+try:
+    for i in tqdm(range(0, len(entries), BATCH_SIZE), desc="Inserting batches"):
+        batch = entries[i:i+BATCH_SIZE]
+        collection.insert(list(zip(*batch)))
+    collection.flush()
+    logging.info(f"Inserted {len(entries)} IRF images into Milvus (multimodal embeddings).")
+except Exception as insert_err:
+    logging.error(f"Error inserting data into Milvus: {insert_err}")
+    raise
 
 # Load collection into memory for immediate searchability
-collection.load()
+try:
+    collection.load()
+    logging.info(f"Collection '{COLLECTION_NAME}' loaded into memory successfully.")
+except Exception as load_err:
+    logging.error(f"Error loading collection '{COLLECTION_NAME}' into memory: {load_err}")
+
+logging.info("Milvus insertion script for IRF images completed.")

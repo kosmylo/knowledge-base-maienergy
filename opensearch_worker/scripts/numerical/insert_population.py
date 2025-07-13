@@ -8,14 +8,25 @@ from opensearchpy import OpenSearch, helpers
 from tqdm import tqdm
 import torch
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
+
+# Logging configuration
+logging.basicConfig(
+    filename="logs/opensearch_worker.log",
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 
 # Configuration
 OPENSEARCH_HOST = os.getenv("OPENSEARCH_HOST")
 INDEX_NAME = os.getenv("POPULATION_INDEX")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL")
 EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION"))
+
+logging.info(f"Script started for index '{INDEX_NAME}'.")
 
 # Initialize OpenSearch client
 client = OpenSearch(
@@ -26,45 +37,49 @@ client = OpenSearch(
 
 # Create hybrid index if not exists
 def create_hybrid_index_if_not_exists(index_name):
-    if not client.indices.exists(index=index_name):
-        index_body = {
-            "settings": {
-                "index": {
-                    "knn": True,
-                    "number_of_shards": 1,
-                    "number_of_replicas": 1
-                }
-            },
-            "mappings": {
-                "properties": {
-                    "embedding": {
-                        "type": "knn_vector",
-                        "dimension": EMBEDDING_DIMENSION,
-                        "method": {
-                            "name": "hnsw",
-                            "engine": "nmslib",
-                            "space_type": "cosinesimil"
-                        }
-                    },
-                    "text_chunk": {"type": "text", "analyzer": "standard"},
-                    "freq": {"type": "keyword"},
-                    "age": {"type": "keyword"},
-                    "sex": {"type": "keyword"},
-                    "unit": {"type": "keyword"},
-                    "country": {"type": "keyword"},
-                    "period": {"type": "keyword"},
-                    "year": {"type": "integer"},
-                    "value": {"type": "float"},
-                    "URL": {"type": "keyword"},
-                    "dataset_name": {"type": "keyword"},
-                    "description": {"type": "text"}
+    try:
+        if not client.indices.exists(index=index_name):
+            index_body = {
+                "settings": {
+                    "index": {
+                        "knn": True,
+                        "number_of_shards": 1,
+                        "number_of_replicas": 1
+                    }
+                },
+                "mappings": {
+                    "properties": {
+                        "embedding": {
+                            "type": "knn_vector",
+                            "dimension": EMBEDDING_DIMENSION,
+                            "method": {
+                                "name": "hnsw",
+                                "engine": "nmslib",
+                                "space_type": "cosinesimil"
+                            }
+                        },
+                        "text_chunk": {"type": "text", "analyzer": "standard"},
+                        "freq": {"type": "keyword"},
+                        "age": {"type": "keyword"},
+                        "sex": {"type": "keyword"},
+                        "unit": {"type": "keyword"},
+                        "country": {"type": "keyword"},
+                        "period": {"type": "keyword"},
+                        "year": {"type": "integer"},
+                        "value": {"type": "float"},
+                        "URL": {"type": "keyword"},
+                        "dataset_name": {"type": "keyword"},
+                        "description": {"type": "text"}
+                    }
                 }
             }
-        }
-        client.indices.create(index=index_name, body=index_body)
-        print(f"Created hybrid index '{index_name}'.")
-    else:
-        print(f"Hybrid index '{index_name}' already exists.")
+            client.indices.create(index=index_name, body=index_body)
+            logging.info(f"Created hybrid index '{index_name}' with KNN and keyword mappings.")
+        else:
+            logging.info(f"Hybrid index '{index_name}' already exists.")
+    except Exception as e:
+        logging.error("Error creating index '%s': %s", index_name, str(e))
+        raise
 
 # Load embedding model
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -95,54 +110,65 @@ create_hybrid_index_if_not_exists(INDEX_NAME)
 csv_file = 'data/numerical/eurostat/population.csv'
 metadata_file = 'data/numerical/eurostat/population_metadata.json'
 
-df = pd.read_csv(csv_file).fillna("")
+try:
+    df = pd.read_csv(csv_file).fillna("")
 
-with open(metadata_file, 'r', encoding='utf-8') as f:
-    metadata = json.load(f)
+    with open(metadata_file, 'r', encoding='utf-8') as f:
+        metadata = json.load(f)
 
-actions = []
+    actions = []
 
-for _, row in tqdm(df.iterrows(), total=df.shape[0], desc="Processing Population records"):
-    description = metadata.get("description", "")
-    geo_time_period = row["geo\\TIME_PERIOD"]
-    country_name = country_code_to_name.get(geo_time_period, geo_time_period)
+    for _, row in tqdm(df.iterrows(), total=df.shape[0], desc="Processing Population records"):
+        try:
+            description = metadata.get("description", "")
+            geo_time_period = row["geo\\TIME_PERIOD"]
+            country_name = country_code_to_name.get(geo_time_period, geo_time_period)
 
-    subject = (f"Population data for age group '{row['age']}', sex '{row['sex']}' "
-               f"in {country_name} during period {row['period']} ({row['year']}). "
-               f"Unit: {row['unit']}, Value: {row['value']}.")
+            subject = (f"Population data for age group '{row['age']}', sex '{row['sex']}' "
+                    f"in {country_name} during period {row['period']} ({row['year']}). "
+                    f"Unit: {row['unit']}, Value: {row['value']}.")
 
-    full_text = f"{subject} {description}"
-    chunks = text_splitter.split_text(full_text)
-    embeddings = embed_text(chunks)
+            full_text = f"{subject} {description}"
+            chunks = text_splitter.split_text(full_text)
+            embeddings = embed_text(chunks)
 
-    for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        doc = {
-            "text_chunk": chunk,
-            "embedding": embedding,
-            "freq": row["freq"],
-            "age": row["age"],
-            "sex": row["sex"],
-            "unit": row["unit"],
-            "country": country_name,
-            "period": row["period"],
-            "year": int(row["year"]) if row["year"] else None,
-            "value": float(row["value"]) if row["value"] else None,
-            "URL": metadata["url"],
-            "dataset_name": metadata["dataset_name"],
-            "description": description
-        }
+            for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                doc = {
+                    "text_chunk": chunk,
+                    "embedding": embedding,
+                    "freq": row["freq"],
+                    "age": row["age"],
+                    "sex": row["sex"],
+                    "unit": row["unit"],
+                    "country": country_name,
+                    "period": row["period"],
+                    "year": int(row["year"]) if row["year"] else None,
+                    "value": float(row["value"]) if row["value"] else None,
+                    "URL": metadata["url"],
+                    "dataset_name": metadata["dataset_name"],
+                    "description": description
+                }
 
-        actions.append({
-            "_index": INDEX_NAME,
-            "_source": doc
-        })
+                actions.append({
+                    "_index": INDEX_NAME,
+                    "_source": doc
+                })
 
-    if len(actions) >= 5000:
+            if len(actions) >= 5000:
+                helpers.bulk(client, actions, request_timeout=60)
+                actions.clear()
+
+        except Exception as record_err:
+            logging.error("Error processing record for country '%s', year '%s': %s",
+                            country_name, row.get("year", "unknown"), str(record_err))
+
+    # Insert remaining data
+    if actions:
         helpers.bulk(client, actions, request_timeout=60)
-        actions.clear()
 
-# Insert remaining data
-if actions:
-    helpers.bulk(client, actions, request_timeout=60)
+except FileNotFoundError as file_err:
+    logging.error("Data or metadata file not found: %s", str(file_err))
+except Exception as e:
+    logging.error("Unexpected error during ingestion: %s", str(e))
 
-print(f"Insertion completed for index '{INDEX_NAME}'.")
+logging.info(f"Insertion completed for index '{INDEX_NAME}'.")
