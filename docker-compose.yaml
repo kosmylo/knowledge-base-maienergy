@@ -56,25 +56,6 @@ services:
       - knowledge-net
     restart: unless-stopped
 
-  opensearch_ingestion_worker:
-    build: ./opensearch_worker
-    container_name: opensearch_ingestion_worker
-    entrypoint: ["tail", "-f", "/dev/null"]
-    environment:
-      - OPENSEARCH_HOST=${OPENSEARCH_HOST}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL}
-      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION}
-    depends_on:
-      - opensearch-node1
-      - opensearch-node2
-    volumes:
-      - ./data:/data
-      - ./opensearch_worker/scripts:/scripts
-      - ./.env:/.env
-      - ./logs:/logs
-    networks:
-      - knowledge-net
-
   # === Milvus & MinIO === #
   milvus-standalone:
     image: milvusdb/milvus:v2.4.1
@@ -114,25 +95,6 @@ services:
       - knowledge-net
     restart: always
 
-  milvus_embeddings_worker:
-    build: ./milvus_worker
-    container_name: milvus_embeddings_worker
-    entrypoint: ["tail", "-f", "/dev/null"]
-    environment:
-      MILVUS_HOST: ${MILVUS_HOST}
-      MILVUS_PORT: ${MILVUS_PORT}
-      EMBED_DIMENSION: ${EMBED_DIMENSION}
-      CLIP_MODEL_NAME: ${CLIP_MODEL_NAME}
-    volumes:
-      - ./data:/data
-      - ./milvus_worker/scripts:/scripts
-      - ./.env:/.env
-      - ./logs:/logs
-    depends_on:
-      - milvus-standalone
-    networks:
-      - knowledge-net
-
   # === Neo4j === #
   neo4j:
     image: neo4j:5.19.0
@@ -155,21 +117,32 @@ services:
       - knowledge-net
     restart: unless-stopped
 
-  neo4j_embeddings_worker:
-    build: ./neo4j_worker
-    container_name: neo4j_embeddings_worker
+  embedding_worker:
+    build: ./worker
+    container_name: embedding_worker
     entrypoint: ["tail", "-f", "/dev/null"]
     environment:
+      OPENSEARCH_HOST: ${OPENSEARCH_HOST}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION}
+      MILVUS_HOST: ${MILVUS_HOST}
+      MILVUS_PORT: ${MILVUS_PORT}
+      EMBED_DIMENSION: ${EMBED_DIMENSION}
+      CLIP_MODEL_NAME: ${CLIP_MODEL_NAME}
       NEO4J_URL: ${NEO4J_URL}
       NEO4J_USER: ${NEO4J_USER}
       NEO4J_PASSWORD: ${NEO4J_PASSWORD}
       EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME}
     volumes:
       - ./data:/data
-      - ./neo4j_worker/scripts:/scripts
+      - ./unified_worker/scripts:/scripts
+      - ./unified_worker/entrypoints:/entrypoints
       - ./.env:/.env
       - ./logs:/logs
     depends_on:
+      - opensearch-node1
+      - opensearch-node2
+      - milvus-standalone
       - neo4j
     networks:
       - knowledge-net
