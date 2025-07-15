@@ -6,68 +6,27 @@ The `maienergy-knowledge-base` repository integrates three vector databases—**
 
 ```plaintext
 maienergy-knowledge-base
-├── .env
-├── README.md
-├── data
-├── docker-compose.yaml
-├── milvus_worker
-│   ├── Dockerfile
-│   ├── entrypoint.sh
-│   ├── requirements.txt
-│   └── scripts
-│       ├── insert_images_copernicus.py
-│       ├── insert_images_eprel.py
-│       ├── insert_images_inria.py
-│       ├── insert_images_irf.py
-│       ├── insert_images_wikimedia.py
-│       └── insert_images_wikipedia.py
-├── neo4j_worker
-│   ├── Dockerfile
-│   ├── entrypoint.sh
-│   ├── requirements.txt
-│   └── scripts
-│       ├── embeddings
-│       │   ├── cordis_embeddings.py
-│       │   ├── gridkit_embeddings.py
-│       │   ├── osm_embeddings.py
-│       │   ├── powerplants_embeddings.py
-│       │   └── tso_network_embeddings.py
-│       └── import
-│           ├── cordis_import.cypher
-│           ├── gridkit_import.cypher
-│           ├── osm_import.cypher
-│           ├── powerplants_import.cypher
-│           └── tso_network_import.cypher
-└── opensearch_worker
-    ├── Dockerfile
-    ├── entrypoint.sh
-    ├── requirements.txt
-    └── scripts
-        ├── articles
-        │   ├── insert_arxiv_articles.py
-        │   ├── insert_gov_articles.py
-        │   ├── insert_news_articles.py
-        │   └── insert_wiki_articles.py
-        └── numerical
-            ├── country_mapping.py
-            ├── insert_annual_energy_balances.py
-            ├── insert_building_stock.py
-            ├── insert_electricity_prices.py
-            ├── insert_energy_efficiency_indicators.py
-            ├── insert_energy_import_dependency.py
-            ├── insert_energy_intensity_of_economy.py
-            ├── insert_energy_performance.py
-            ├── insert_final_energy_consumption_households_per_capita.py
-            ├── insert_financial_performance.py
-            ├── insert_gas_prices.py
-            ├── insert_gdp.py
-            ├── insert_ghg_emissions_energy.py
-            ├── insert_households_number.py
-            ├── insert_inability_to_keep_home_warm.py
-            ├── insert_population.py
-            ├── insert_reference_buildings.py
-            ├── insert_renewable_energy_share.py
-            └── insert_social_performance.py
+├── .env                                 # Environment variables for configurations
+├── README.md                            # This documentation file
+├── data                                 # Directory for all dataset files
+├── docker-compose.yaml                  # Docker Compose orchestration file
+├── unified_worker                       # Embedding and ingestion worker
+│   ├── Dockerfile                       # Dockerfile for worker
+│   ├── requirements.txt                 # Python dependencies
+│   ├── entrypoints                      # Manual entrypoint scripts for ingestion
+│   │   ├── entrypoint_opensearch.sh
+│   │   ├── entrypoint_milvus.sh
+│   │   └── entrypoint_neo4j.sh
+│   └── scripts                          # Scripts for data embedding and ingestion
+│       ├── opensearch
+│       │   ├── articles                 # Article ingestion scripts
+│       │   └── numerical                # Numerical ingestion scripts
+│       ├── milvus
+│       │   └── images                   # Image ingestion scripts
+│       └── neo4j
+│           ├── embeddings               # Neo4j graph embedding scripts
+│           └── import                   # Cypher scripts for Neo4j imports
+└── logs                                 # Directory for logging ingestion processes
 ```
 
 ## 🚀 Quick Start
@@ -102,15 +61,31 @@ docker-compose build
 docker-compose up -d
 ```
 
+This command sets up your vector databases (OpenSearch, Milvus, Neo4j) and a unified worker container (idle by default).
+
 ### 4. Execute Data Ingestion
 
-Data ingestion begins automatically once the containers start. Monitor logs:
+Data ingestion scripts are executed manually. Once your containers are running, trigger each ingestion process separately as follows:
+
+- OpenSearch Ingestion (Textual and Numerical data):
 
 ```bash
-docker logs -f opensearch_ingestion_worker
-docker logs -f milvus_embeddings_worker
-docker logs -f neo4j_embeddings_worker
+docker compose exec embedding_worker/entrypoints/entrypoint_opensearch.sh
 ```
+
+- Milvus Ingestion (Image data):
+
+```bash
+docker compose exec embedding_worker/entrypoints/entrypoint_milvus.sh
+```
+
+- Neo4j Ingestion (Graph/Geospatial data):
+
+```bash
+docker compose exec embedding_worker/entrypoints/entrypoint_neo4j.sh
+```
+
+Monitor the logs generated in the `logs/` directory for detailed progress and troubleshooting information.
 
 ### 🛠️ Technologies Used
 
