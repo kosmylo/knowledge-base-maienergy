@@ -3,18 +3,21 @@ version: '3.8'
 services:
 
   # === OpenSearch === #
-  opensearch-node1:
+  opensearch:
     image: opensearchproject/opensearch:2.15.0
-    container_name: opensearch-node1
+    container_name: opensearch
     environment:
       - cluster.name=opensearch-cluster
-      - node.name=opensearch-node1
-      - discovery.seed_hosts=opensearch-node1,opensearch-node2
-      - cluster.initial_cluster_manager_nodes=opensearch-node1,opensearch-node2
+      - node.name=single-node
+      - discovery.type=single-node
       - bootstrap.memory_lock=true
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
       - DISABLE_INSTALL_DEMO_CONFIG=true
       - DISABLE_SECURITY_PLUGIN=true
+      # Default new indices to 1 shard, 0 replicas
+      - "action.auto_create_index=true"
+      - "index.number_of_shards=1"
+      - "index.number_of_replicas=0"
     ulimits:
       memlock:
         soft: -1
@@ -26,32 +29,12 @@ services:
       - 9200:9200
       - 9600:9600
     volumes:
-      - opensearch-data1:/usr/share/opensearch/data
-    networks:
-      - knowledge-net
-    restart: unless-stopped
-
-  opensearch-node2:
-    image: opensearchproject/opensearch:2.15.0
-    container_name: opensearch-node2
-    environment:
-      - cluster.name=opensearch-cluster
-      - node.name=opensearch-node2
-      - discovery.seed_hosts=opensearch-node1,opensearch-node2
-      - cluster.initial_cluster_manager_nodes=opensearch-node1,opensearch-node2
-      - bootstrap.memory_lock=true
-      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
-      - DISABLE_INSTALL_DEMO_CONFIG=true
-      - DISABLE_SECURITY_PLUGIN=true
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-      nofile:
-        soft: 65536
-        hard: 65536
-    volumes:
-      - opensearch-data2:/usr/share/opensearch/data
+      - opensearch-data:/usr/share/opensearch/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     networks:
       - knowledge-net
     restart: unless-stopped
@@ -135,21 +118,19 @@ services:
       EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME}
     volumes:
       - ./data:/data
-      - ./unified_worker/scripts:/scripts
-      - ./unified_worker/entrypoints:/entrypoints
+      - ./worker/scripts:/scripts
+      - ./worker/entrypoints:/entrypoints
       - ./.env:/.env
       - ./logs:/logs
     depends_on:
-      - opensearch-node1
-      - opensearch-node2
+      - opensearch
       - milvus-standalone
       - neo4j
     networks:
       - knowledge-net
 
 volumes:
-  opensearch-data1:
-  opensearch-data2:
+  opensearch-data:
   milvus-data:
   minio-data:
   neo4j-data:
