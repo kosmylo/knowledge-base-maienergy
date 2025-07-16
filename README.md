@@ -70,19 +70,19 @@ Data ingestion scripts are executed manually. Once your containers are running, 
 - OpenSearch Ingestion (Textual and Numerical data):
 
 ```bash
-docker compose exec embedding_worker/entrypoints/entrypoint_opensearch.sh
+docker compose exec embedding_worker /entrypoints/entrypoint_opensearch.sh
 ```
 
 - Milvus Ingestion (Image data):
 
 ```bash
-docker compose exec embedding_worker/entrypoints/entrypoint_milvus.sh
+docker compose exec embedding_worker /entrypoints/entrypoint_milvus.sh
 ```
 
 - Neo4j Ingestion (Graph/Geospatial data):
 
 ```bash
-docker compose exec embedding_worker/entrypoints/entrypoint_neo4j.sh
+docker compose exec embedding_worker /entrypoints/entrypoint_neo4j.sh
 ```
 
 Monitor the logs generated in the `logs/` directory for detailed progress and troubleshooting information.
