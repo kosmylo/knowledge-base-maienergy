@@ -8,16 +8,12 @@ services:
     container_name: opensearch
     environment:
       - cluster.name=opensearch-cluster
-      - node.name=single-node
+      - node.name=opensearch
       - discovery.type=single-node
       - bootstrap.memory_lock=true
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
       - DISABLE_INSTALL_DEMO_CONFIG=true
       - DISABLE_SECURITY_PLUGIN=true
-      # Default new indices to 1 shard, 0 replicas
-      - "action.auto_create_index=true"
-      - "index.number_of_shards=1"
-      - "index.number_of_replicas=0"
     ulimits:
       memlock:
         soft: -1
@@ -30,11 +26,6 @@ services:
       - 9600:9600
     volumes:
       - opensearch-data:/usr/share/opensearch/data
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "3"
     networks:
       - knowledge-net
     restart: unless-stopped
