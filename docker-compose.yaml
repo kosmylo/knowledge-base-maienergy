@@ -1,0 +1,131 @@
+version: '3.8'
+
+services:
+
+  # === OpenSearch === #
+  opensearch:
+    image: opensearchproject/opensearch:2.15.0
+    container_name: opensearch
+    environment:
+      - cluster.name=opensearch-cluster
+      - node.name=opensearch
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - DISABLE_SECURITY_PLUGIN=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - 9200:9200
+      - 9600:9600
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      - knowledge-net
+    restart: unless-stopped
+
+  # === Milvus & MinIO === #
+  milvus-standalone:
+    image: milvusdb/milvus:v2.4.1
+    container_name: milvus-standalone
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_USE_EMBED: true
+      MINIO_USE_EMBED: false
+      MINIO_ADDRESS: ${MINIO_ADDRESS}
+      MINIO_PORT: ${MINIO_PORT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus-data:/var/lib/milvus
+    networks:
+      - knowledge-net
+    depends_on:
+      - minio
+    restart: always
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - knowledge-net
+    restart: always
+
+  # === Neo4j === #
+  neo4j:
+    image: neo4j:5.19.0
+    container_name: neo4j
+    ports:
+      - 7687:7687
+      - 7474:7474
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_server_memory_heap_initial__size: 2G
+      NEO4J_server_memory_heap_max__size: 4G
+      NEO4J_server_memory_pagecache_size: 1G
+      NEO4J_dbms_memory_transaction_total_max: 4G
+    volumes:
+      - ./data:/var/lib/neo4j/import
+      - neo4j-data:/data
+    networks:
+      - knowledge-net
+    restart: unless-stopped
+
+  embedding_worker:
+    build: ./worker
+    container_name: embedding_worker
+    entrypoint: ["tail", "-f", "/dev/null"]
+    environment:
+      OPENSEARCH_HOST: ${OPENSEARCH_HOST}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION}
+      MILVUS_HOST: ${MILVUS_HOST}
+      MILVUS_PORT: ${MILVUS_PORT}
+      EMBED_DIMENSION: ${EMBED_DIMENSION}
+      CLIP_MODEL_NAME: ${CLIP_MODEL_NAME}
+      NEO4J_URL: ${NEO4J_URL}
+      NEO4J_USER: ${NEO4J_USER}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME}
+    volumes:
+      - ./data:/data
+      - ./worker/scripts:/scripts
+      - ./worker/entrypoints:/entrypoints
+      - ./.env:/.env
+      - ./logs:/logs
+    depends_on:
+      - opensearch
+      - milvus-standalone
+      - neo4j
+    networks:
+      - knowledge-net
+
+volumes:
+  opensearch-data:
+  milvus-data:
+  minio-data:
+  neo4j-data:
+
+networks:
+  knowledge-net:
+    driver: bridge
